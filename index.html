@@ -31,6 +31,15 @@
             animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Iframe styling for Tetris */
+        .tetris-container {
+            width: 100%;
+            height: calc(100vh - 160px);
+            border: none;
+            border-radius: 1rem;
+            background: #000;
+        }
     </style>
 </head>
 <body>
@@ -40,7 +49,6 @@
         const { useState, useEffect, useRef } = React;
 
         // --- Firebase Config & Init ---
-        // 주의: 배포 시에는 본인의 Firebase Console에서 복사한 실제 config를 넣어야 온라인 기능이 작동합니다.
         const firebaseConfig = typeof __firebase_config !== 'undefined' 
             ? JSON.parse(__firebase_config) 
             : { 
@@ -52,7 +60,6 @@
                 appId: "" 
             };
         
-        // 중복 초기화 방지
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
@@ -124,7 +131,6 @@
             useEffect(() => {
                 if (!user || !roomId) return;
                 
-                // Firebase Config가 비어있을 경우 경고
                 if (!firebaseConfig.apiKey && roomId) {
                     setError('Firebase API Key가 설정되지 않아 실시간 기능을 사용할 수 없습니다.');
                     return;
@@ -311,7 +317,6 @@
             const [isInitialLoading, setIsInitialLoading] = useState(true);
 
             useEffect(() => {
-                // Firebase 초기화 확인 후 인증 시작
                 const startAuth = async () => {
                     try {
                         const unsubscribe = auth.onAuthStateChanged(async (u) => {
@@ -319,12 +324,10 @@
                                 setUser(u);
                                 setIsInitialLoading(false);
                             } else {
-                                // 익명 로그인 시도
                                 try {
                                     await auth.signInAnonymously();
                                 } catch (e) {
                                     console.error("Auth Error:", e);
-                                    // Firebase 설정이 안되어 있어도 UI는 보여주기 위해 더미 유저 설정
                                     setUser({ uid: 'offline-user-' + Math.random().toString(36).substr(2, 5) });
                                     setIsInitialLoading(false);
                                 }
@@ -359,13 +362,21 @@
                             <button onClick={() => setActiveTab('tetris')} className={`px-5 py-2 rounded-lg font-bold text-xs md:text-sm transition-all ${activeTab === 'tetris' ? 'bg-zinc-800 text-white shadow-inner' : 'text-zinc-500 hover:text-zinc-300'}`}>TETRIS</button>
                         </div>
                     </nav>
-                    <main className="flex-grow flex flex-col items-center justify-center p-4 md:p-8">
+                    <main className="flex-grow flex flex-col items-center justify-center p-4">
                         {activeTab === 'omok' ? (
                             <OmokGame user={user} />
                         ) : (
-                            <div className="flex flex-col items-center gap-4 text-zinc-700 animate-pulse">
-                                <div className="text-6xl">🕹️</div>
-                                <div className="font-black italic tracking-widest text-xl">TETRIS COMING SOON</div>
+                            <div className="w-full max-w-4xl h-full flex flex-col items-center">
+                                <iframe 
+                                    src="https://jinuk97.github.io/tetris/" 
+                                    className="tetris-container shadow-2xl border-4 border-zinc-800"
+                                    title="Tetris Game"
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                    allowFullScreen
+                                ></iframe>
+                                <p className="mt-4 text-zinc-500 text-xs font-bold uppercase tracking-widest animate-pulse">
+                                    Use Arrow Keys to Play Tetris
+                                </p>
                             </div>
                         )}
                     </main>
