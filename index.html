@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tetris - Shape Mission Interactive</title>
+    <title>Tetris - Shape Mission Focus</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
@@ -28,24 +28,12 @@
             background: rgba(30, 41, 59, 0.8);
             backdrop-filter: blur(10px);
             border-radius: 24px;
-            box-shadow: 0 0 60px rgba(244, 63, 94, 0.2);
-            border: 2px solid rgba(244, 63, 94, 0.5);
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(244, 63, 94, 0.3);
             position: relative;
-            transition: all 0.3s ease;
         }
 
-        /* Interactive Shake Effect */
-        .shake-heavy { animation: shake 0.2s infinite; }
-        .shake-light { animation: shake 0.4s 1; }
-        
-        @keyframes shake {
-            0% { transform: translate(1px, 1px); }
-            20% { transform: translate(-2px, 0px); }
-            40% { transform: translate(2px, 2px); }
-            60% { transform: translate(-1px, -1px); }
-            80% { transform: translate(2px, -2px); }
-            100% { transform: translate(0px, 0px); }
-        }
+        /* Screen Shake animations removed as requested */
 
         .side-panel {
             display: flex;
@@ -79,7 +67,7 @@
 
         canvas {
             background-color: #000;
-            border: 3px solid rgba(244, 63, 94, 0.8);
+            border: 3px solid rgba(244, 63, 94, 0.6);
             border-radius: 12px;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
         }
@@ -183,7 +171,7 @@
             </div>
         </div>
         <div class="display-box">
-            <div id="mission-name" class="display-label">MISSION: HEART</div>
+            <div id="mission-name" class="display-label text-[9px]">MISSION: HEART</div>
         </div>
     </div>
 
@@ -218,7 +206,7 @@
 
     <div id="overlay">
         <h1 id="main-title" class="game-title">SHAPE CORE</h1>
-        <p id="overlay-subtext" class="text-slate-400 text-sm mb-6">Breach the security shapes to advance.</p>
+        <p id="overlay-subtext" class="text-slate-400 text-sm mb-6 text-center">Break the security shapes to advance.</p>
         <div id="score-result" class="text-white text-2xl font-bold mb-6 hidden"></div>
         <button id="start-btn" class="btn" onclick="startGame()">INITIATE SEQUENCE</button>
     </div>
@@ -342,15 +330,15 @@
     }
 
     function createParticles(x, y, color) {
-        const count = 8;
+        const count = 12;
         for (let i = 0; i < count; i++) {
             const p = document.createElement('div');
             p.className = 'particle';
-            const size = Math.random() * 6 + 4;
+            const size = Math.random() * 5 + 3;
             p.style.width = size + 'px';
             p.style.height = size + 'px';
             p.style.backgroundColor = color;
-            p.style.boxShadow = `0 0 10px ${color}`;
+            p.style.boxShadow = `0 0 8px ${color}`;
             
             const rect = canvas.getBoundingClientRect();
             p.style.left = (rect.left + x * 30 + 15) + 'px';
@@ -359,7 +347,7 @@
             document.body.appendChild(p);
             
             const angle = Math.random() * Math.PI * 2;
-            const velocity = Math.random() * 100 + 50;
+            const velocity = Math.random() * 80 + 40;
             const vx = Math.cos(angle) * velocity;
             const vy = Math.sin(angle) * velocity;
             
@@ -367,25 +355,15 @@
                 { transform: 'translate(0, 0) scale(1)', opacity: 1 },
                 { transform: `translate(${vx}px, ${vy}px) scale(0)`, opacity: 0 }
             ], {
-                duration: 600,
-                easing: 'cubic-bezier(0, .9, .57, 1)'
+                duration: 500,
+                easing: 'ease-out'
             }).onfinish = () => p.remove();
-        }
-    }
-
-    function triggerEffect(type) {
-        if (type === 'clear') {
-            wrapper.classList.add('shake-light');
-            setTimeout(() => wrapper.classList.remove('shake-light'), 400);
-            document.body.style.backgroundColor = '#1e1b4b'; 
-            setTimeout(() => document.body.style.backgroundColor = '#020617', 200);
         }
     }
 
     function initStage(level) {
         arena.forEach(row => row.fill(0));
         
-        // Pick shape based on level (looping through MISSION_SHAPES)
         const shapeInfo = MISSION_SHAPES[(level - 1) % MISSION_SHAPES.length];
         const shape = shapeInfo.matrix;
         missionName.innerText = `MISSION: ${shapeInfo.name}`;
@@ -399,15 +377,14 @@
             });
         });
 
-        // Add random garbage blocks below the shape as level increases
+        // Add additional complexity as levels increase
         if (level > 1) {
-            const extraRows = Math.min(level - 1, 8);
+            const extraRows = Math.min(level - 1, 5);
             for (let i = 0; i < extraRows; i++) {
                 const y = 19 - i;
-                // Don't overwrite the main shape area if possible
                 if (y < startY + shape.length && y >= startY) continue; 
                 for (let x = 0; x < 10; x++) {
-                    if (Math.random() > 0.6) arena[y][x] = 8;
+                    if (Math.random() > 0.7) arena[y][x] = 8;
                 }
             }
         }
@@ -438,7 +415,6 @@
         player.clearing = true;
         stageAlert.innerText = `LEVEL ${player.stage} CLEAR`;
         stageAlert.classList.add('alert-active');
-        triggerEffect('clear');
         
         setTimeout(() => {
             stageAlert.classList.remove('alert-active');
@@ -453,7 +429,8 @@
         context.fillStyle = '#000';
         context.fillRect(0, 0, canvas.width, canvas.height);
 
-        context.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+        // Grid lines
+        context.strokeStyle = 'rgba(244, 63, 94, 0.05)';
         context.lineWidth = 0.02;
         for(let i=0; i<=10; i++) { context.beginPath(); context.moveTo(i, 0); context.lineTo(i, 20); context.stroke(); }
         for(let i=0; i<=20; i++) { context.beginPath(); context.moveTo(0, i); context.lineTo(10, i); context.stroke(); }
@@ -461,12 +438,6 @@
         drawMatrix(arena, {x: 0, y: 0}, context);
         drawGhost(0.15);
         drawMatrix(player.matrix, player.pos, context);
-
-        if (player.grayCount > 0 && player.grayCount < player.maxGrayCount * 0.3) {
-            wrapper.classList.add('shake-heavy');
-        } else {
-            wrapper.classList.remove('shake-heavy');
-        }
     }
 
     function drawMatrix(matrix, offset, ctx) {
@@ -475,7 +446,8 @@
                 if (value !== 0) {
                     ctx.fillStyle = colors[value];
                     ctx.fillRect(x + offset.x + 0.05, y + offset.y + 0.05, 0.9, 0.9);
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                    // Block highlight
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
                     ctx.fillRect(x + offset.x + 0.1, y + offset.y + 0.1, 0.3, 0.1);
                 }
             });
@@ -516,6 +488,7 @@
                 if (arena[y][x] === 0) continue outer;
             }
             
+            // Effect when a row containing gray blocks is cleared
             for (let x = 0; x < 10; x++) {
                 if (arena[y][x] === 8) createParticles(x, y, '#f43f5e');
             }
@@ -529,7 +502,6 @@
         if (count > 0) {
             player.combo++;
             player.score += (count * 200) * player.stage + (player.combo * 100);
-            triggerEffect('clear');
             
             if(player.combo > 1) {
                 comboAlert.innerText = `${player.combo - 1} COMBO`;
