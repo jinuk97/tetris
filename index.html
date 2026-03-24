@@ -3,42 +3,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ARCADE-X: Online Omok & Tetris</title>
+    <title>ARCADE-X: Tetris 100+ Stages</title>
     <!-- Tailwind CSS for Styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React & Babel for Browser Rendering -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Firebase Libraries (Compat version for easier global access) -->
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #09090b; color: white; margin: 0; overflow-x: hidden; }
-        .omok-board {
-            background-color: #dcb35c;
-            box-shadow: inset 0 0 100px rgba(0,0,0,0.2), 0 20px 50px rgba(0,0,0,0.5);
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #09090b; 
+            color: white; 
+            margin: 0; 
+            overflow: hidden; 
         }
-        /* 로딩 애니메이션 */
-        .loader {
-            border: 3px solid #18181b;
-            border-top: 3px solid #f97316;
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
-        /* Iframe styling for Tetris */
-        .tetris-container {
+        .tetris-wrapper {
             width: 100%;
-            height: calc(100vh - 160px);
-            border: none;
-            border-radius: 1rem;
+            height: calc(100vh - 180px);
+            max-width: 900px;
+            margin: 0 auto;
             background: #000;
+            border-radius: 1.5rem;
+            overflow: hidden;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            border: 2px solid #18181b;
+        }
+
+        .tetris-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .glow-bg {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 800px;
+            height: 800px;
+            background: radial-gradient(circle, rgba(249, 115, 22, 0.08) 0%, rgba(9, 9, 11, 0) 70%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        /* 커스텀 스크롤바 */
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #27272a; border-radius: 10px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+        .stage-card {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .stage-card:hover {
+            transform: scale(1.05);
+            border-color: #f97316;
+            background-color: rgba(39, 39, 42, 0.8);
         }
     </style>
 </head>
@@ -46,342 +70,175 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useMemo } = React;
 
-        // --- Firebase Config & Init ---
-        const firebaseConfig = typeof __firebase_config !== 'undefined' 
-            ? JSON.parse(__firebase_config) 
-            : { 
-                apiKey: "", 
-                authDomain: "", 
-                projectId: "arcade-x-placeholder", 
-                storageBucket: "", 
-                messagingSenderId: "", 
-                appId: "" 
-            };
+        // 100개 이상의 스테이지를 생성하기 위한 헬퍼 데이터
+        const CATEGORIES = ["ALL", "SHAPES", "ALPHABET", "EMOJI", "CHALLENGE"];
         
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
-        
-        const auth = firebase.auth();
-        const db = firebase.firestore();
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'arcade-x-default';
+        const generateStages = () => {
+            const stages = [
+                { id: 'classic', name: 'Classic', desc: 'No obstacles', icon: '⬜', cat: 'ALL' },
+                { id: 'heart', name: 'Heart', desc: 'Love pattern', icon: '❤️', cat: 'SHAPES' },
+                { id: 'cross', name: 'X-Cross', desc: 'Intersection', icon: '❌', cat: 'SHAPES' },
+                { id: 'pyramid', name: 'Pyramid', desc: 'Ancient structure', icon: '⛰️', cat: 'SHAPES' },
+                { id: 'diamond', name: 'Diamond', desc: 'Sparkling block', icon: '💎', cat: 'SHAPES' },
+            ];
 
-        const BOARD_SIZE = 15;
+            // 알파벳 스테이지 추가 (A-Z)
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").forEach(char => {
+                stages.push({
+                    id: `alpha-${char.toLowerCase()}`,
+                    name: `Stage ${char}`,
+                    desc: `Pattern shaped like ${char}`,
+                    icon: '🔡',
+                    cat: 'ALPHABET'
+                });
+            });
 
-        // --- Omok Logic Helpers ---
-        const checkRenjuRules = (board, index, color) => {
-            if (color === 'white') return { forbidden: false };
-            const r = Math.floor(index / BOARD_SIZE), c = index % BOARD_SIZE;
-            const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
-            let fours = 0, threes = 0;
-            for (const [dr, dc] of directions) {
-                let line = 1;
-                for (let i = 1; i < 7; i++) {
-                    const nr = r + dr * i, nc = c + dc * i;
-                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr * BOARD_SIZE + nc] === 'black') line++;
-                    else break;
-                }
-                for (let i = 1; i < 7; i++) {
-                    const nr = r - dr * i, nc = c - dc * i;
-                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr * BOARD_SIZE + nc] === 'black') line++;
-                    else break;
-                }
-                if (line > 5) return { forbidden: true, reason: '장주(6목 이상) 금지' };
-                if (line === 4) fours++;
-                if (line === 3) threes++;
+            // 이모지 및 특수 패턴 추가 (나머지 100개 채우기)
+            const emojis = ['🔥', '⭐', '🍀', '💀', '👻', '👾', '🚀', '🌈', '⚡', '🌊', '🍄', '🎈', '🎨', '🎯', '🧩', '🌙', '☀️', '🌀', '🔔', '🛡️'];
+            emojis.forEach((emoji, idx) => {
+                stages.push({
+                    id: `emoji-${idx}`,
+                    name: `Special ${idx + 1}`,
+                    desc: `Extreme ${emoji} challenge`,
+                    icon: emoji,
+                    cat: 'EMOJI'
+                });
+            });
+
+            // 챌린지 모드 (레벨 기반)
+            for(let i=1; i<=50; i++) {
+                stages.push({
+                    id: `lv-${i}`,
+                    name: `Level ${i}`,
+                    desc: `High difficulty level ${i}`,
+                    icon: '🚧',
+                    cat: 'CHALLENGE'
+                });
             }
-            if (fours >= 2) return { forbidden: true, reason: '4-4 금수' };
-            if (threes >= 2) return { forbidden: true, reason: '3-3 금수' };
-            return { forbidden: false };
+
+            return stages;
         };
 
-        const checkWinner = (board, index, color) => {
-            const r = Math.floor(index / BOARD_SIZE), c = index % BOARD_SIZE;
-            const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
-            for (const [dr, dc] of directions) {
-                let count = 1;
-                for (let i = 1; i < 6; i++) {
-                    const nr = r + dr * i, nc = c + dc * i;
-                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr * BOARD_SIZE + nc] === color) count++;
-                    else break;
-                }
-                for (let i = 1; i < 6; i++) {
-                    const nr = r - dr * i, nc = c - dc * i;
-                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr * BOARD_SIZE + nc] === color) count++;
-                    else break;
-                }
-                if (color === 'black' && count === 5) return true;
-                if (color === 'white' && count >= 5) return true;
-            }
-            return false;
-        };
-
-        // --- Main Components ---
-        function OmokGame({ user }) {
-            const [roomId, setRoomId] = useState('');
-            const [gameData, setGameData] = useState(null);
-            const [inputRoomId, setInputRoomId] = useState('');
-            const [myColor, setMyColor] = useState(null);
-            const [forbiddenMsg, setForbiddenMsg] = useState('');
-            const [showRoleSelect, setShowRoleSelect] = useState(false);
-            const [error, setError] = useState('');
-
-            useEffect(() => {
-                if (!user || !roomId) return;
-                
-                if (!firebaseConfig.apiKey && roomId) {
-                    setError('Firebase API Key가 설정되지 않아 실시간 기능을 사용할 수 없습니다.');
-                    return;
-                }
-
-                const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('rooms').doc(roomId);
-                const unsubscribe = docRef.onSnapshot((docSnap) => {
-                    if (docSnap.exists) {
-                        const data = docSnap.data();
-                        setGameData(data);
-                        if (data.playerBlack === user.uid) setMyColor('black');
-                        else if (data.playerWhite === user.uid) setMyColor('white');
-                        else if (!data.playerBlack) {
-                            docRef.update({ playerBlack: user.uid });
-                            setMyColor('black');
-                        } else if (!data.playerWhite) {
-                            docRef.update({ playerWhite: user.uid });
-                            setMyColor('white');
-                        } else {
-                            setMyColor('observer');
-                        }
-                    } else {
-                        setError('존재하지 않는 방입니다.');
-                    }
-                }, (err) => {
-                    console.error("Firestore Error:", err);
-                    setError('데이터를 불러오는데 실패했습니다. (권한 부족 혹은 설정 오류)');
-                });
-                return () => unsubscribe();
-            }, [user, roomId]);
-
-            const createRoom = async (preferredColor) => {
-                if (!firebaseConfig.apiKey) {
-                    alert('Firebase 설정이 필요합니다.');
-                    return;
-                }
-                const newId = Math.random().toString(36).substring(2, 8).toUpperCase();
-                const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('rooms').doc(newId);
-                try {
-                    await docRef.set({
-                        board: Array(BOARD_SIZE * BOARD_SIZE).fill(null),
-                        turn: 'black',
-                        playerBlack: preferredColor === 'black' ? user.uid : null,
-                        playerWhite: preferredColor === 'white' ? user.uid : null,
-                        winner: null,
-                        lastMove: null,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    setRoomId(newId);
-                    setShowRoleSelect(false);
-                    setError('');
-                } catch (e) {
-                    setError('방 생성 실패: Firebase 설정을 확인하세요.');
-                }
-            };
-
-            const placeStone = async (index) => {
-                if (!gameData || gameData.winner || gameData.board[index] || gameData.turn !== myColor) return;
-                if (myColor === 'black') {
-                    const check = checkRenjuRules(gameData.board, index, 'black');
-                    if (check.forbidden) {
-                        setForbiddenMsg(check.reason);
-                        setTimeout(() => setForbiddenMsg(''), 2000);
-                        return;
-                    }
-                }
-                const newBoard = [...gameData.board];
-                newBoard[index] = myColor;
-                const isWin = checkWinner(newBoard, index, myColor);
-                const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('rooms').doc(roomId);
-                await docRef.update({
-                    board: newBoard,
-                    turn: myColor === 'black' ? 'white' : 'black',
-                    winner: isWin ? myColor : null,
-                    lastMove: index
-                });
-            };
-
-            if (error) {
-                return (
-                    <div className="max-w-md w-full bg-red-900/20 border border-red-500 p-6 rounded-2xl text-center">
-                        <p className="text-red-400 font-bold mb-4">{error}</p>
-                        <button onClick={() => {setError(''); setRoomId('');}} className="bg-red-600 px-4 py-2 rounded-lg font-bold">돌아가기</button>
-                    </div>
-                );
-            }
-
-            if (!roomId) {
-                return (
-                    <div className="max-w-md w-full bg-zinc-900 p-8 rounded-3xl border border-zinc-800 shadow-2xl">
-                        <h2 className="text-3xl font-black mb-8 text-center italic tracking-tighter text-orange-500">RENJU ONLINE</h2>
-                        {showRoleSelect ? (
-                            <div className="space-y-4">
-                                <p className="text-center text-zinc-400 font-bold mb-4">선공/후공을 선택하세요</p>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <button onClick={() => createRoom('black')} className="flex flex-col items-center gap-3 bg-zinc-800 hover:bg-black p-6 rounded-2xl border border-zinc-700 transition-all">
-                                        <div className="w-10 h-10 rounded-full bg-black border border-zinc-600"></div>
-                                        <span className="font-bold text-sm">흑 (선공)</span>
-                                    </button>
-                                    <button onClick={() => createRoom('white')} className="flex flex-col items-center gap-3 bg-zinc-800 hover:bg-zinc-100 group p-6 rounded-2xl border border-zinc-700 transition-all">
-                                        <div className="w-10 h-10 rounded-full bg-white border border-zinc-300"></div>
-                                        <span className="font-bold text-sm group-hover:text-black">백 (후공)</span>
-                                    </button>
-                                </div>
-                                <button onClick={() => setShowRoleSelect(false)} className="w-full text-zinc-500 text-sm mt-4 font-bold">뒤로 가기</button>
-                            </div>
-                        ) : (
-                            <div className="space-y-4">
-                                <button onClick={() => setShowRoleSelect(true)} className="w-full bg-orange-600 py-4 rounded-xl font-bold text-lg hover:bg-orange-500 transition-all shadow-lg shadow-orange-900/20">방 만들기</button>
-                                <div className="relative py-4">
-                                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-zinc-800"></div></div>
-                                    <div className="relative flex justify-center text-xs uppercase"><span className="bg-zinc-900 px-2 text-zinc-500 font-black tracking-widest">OR</span></div>
-                                </div>
-                                <input type="text" placeholder="코드 입력" value={inputRoomId} onChange={e => setInputRoomId(e.target.value)} className="w-full bg-black border border-zinc-800 py-4 rounded-xl text-center font-mono text-xl uppercase outline-none focus:border-orange-600 transition-colors" />
-                                <button onClick={() => setRoomId(inputRoomId.toUpperCase())} className="w-full bg-white text-black py-4 rounded-xl font-bold hover:bg-zinc-200 transition-all">참가하기</button>
-                            </div>
-                        )}
-                        <p className="mt-8 text-[10px] text-zinc-600 text-center leading-relaxed">
-                            * 본 게임은 Firebase 연동이 필요합니다.<br/>설정이 안된 경우 검은 화면이나 오류가 발생할 수 있습니다.
-                        </p>
-                    </div>
-                );
-            }
-
-            return (
-                <div className="flex flex-col items-center gap-6 w-full max-w-[600px] animate-in fade-in duration-500">
-                    <div className="w-full flex justify-between items-center bg-zinc-900 p-4 rounded-2xl border border-zinc-800">
-                        <div>
-                            <div className="text-[10px] text-zinc-500 font-bold uppercase">Room Code</div>
-                            <div className="text-xl font-black text-orange-500 font-mono tracking-widest">{roomId}</div>
-                        </div>
-                        <div className="text-center">
-                            <div className={`w-3 h-3 rounded-full mx-auto mb-1 ${gameData?.winner ? 'bg-zinc-700' : 'bg-green-500 animate-pulse'}`}></div>
-                            <div className="text-[10px] font-bold text-zinc-400 uppercase">{gameData?.winner ? 'Ended' : 'Live'}</div>
-                        </div>
-                        <div className="text-right">
-                            <div className="text-[10px] text-zinc-500 font-bold uppercase">Your Role</div>
-                            <div className="flex items-center gap-2 justify-end">
-                                <span className="font-bold text-sm tracking-tighter">{myColor === 'black' ? 'BLACK' : myColor === 'white' ? 'WHITE' : 'SPECTATOR'}</span>
-                                <div className={`w-3 h-3 rounded-full border ${myColor === 'black' ? 'bg-black border-zinc-600' : myColor === 'white' ? 'bg-white border-zinc-300' : 'bg-transparent border-dashed border-zinc-600'}`}></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="w-full h-14 relative flex items-center justify-center">
-                        {forbiddenMsg && <div className="absolute inset-0 bg-red-600 text-white flex items-center justify-center rounded-xl font-black z-50 animate-bounce shadow-xl">{forbiddenMsg}! ⚠️</div>}
-                        {gameData?.winner ? (
-                            <div className="w-full h-full bg-orange-600 text-white flex items-center justify-center rounded-xl font-black text-xl italic uppercase tracking-tighter">
-                                {gameData.winner} wins! 👑
-                            </div>
-                        ) : (
-                            <div className={`w-full h-full flex items-center justify-center rounded-xl border-2 font-black text-lg transition-all ${gameData?.turn === myColor ? 'bg-white text-black border-white shadow-xl' : 'bg-zinc-900 text-zinc-600 border-zinc-800'}`}>
-                                {gameData?.turn === myColor ? '⚡ YOUR TURN ⚡' : `${gameData?.turn?.toUpperCase()}'S TURN...`}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="relative w-full aspect-square omok-board p-2 rounded-lg border-8 border-[#9e7d38] shadow-2xl">
-                        <div className="grid w-full h-full" style={{ gridTemplateColumns: `repeat(${BOARD_SIZE}, 1fr)`, gridTemplateRows: `repeat(${BOARD_SIZE}, 1fr)` }}>
-                            {Array(BOARD_SIZE * BOARD_SIZE).fill(null).map((_, i) => (
-                                <div key={i} onClick={() => placeStone(i)} className="relative flex items-center justify-center cursor-pointer group">
-                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                        <div className="h-[1px] bg-black/30 w-full"></div>
-                                        <div className="w-[1px] bg-black/30 h-full absolute"></div>
-                                    </div>
-                                    {gameData?.board[i] && (
-                                        <div className={`w-[88%] h-[88%] rounded-full z-10 shadow-lg transform transition-transform duration-200 scale-100 hover:scale-105 ${gameData.board[i] === 'black' ? 'bg-gradient-to-br from-zinc-700 to-black' : 'bg-gradient-to-br from-white to-zinc-300'} ${gameData.lastMove === i ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-[#dcb35c]' : ''}`}></div>
-                                    )}
-                                    {!gameData?.board[i] && !gameData?.winner && gameData?.turn === myColor && (
-                                        <div className={`w-[50%] h-[50%] rounded-full opacity-0 group-hover:opacity-40 z-10 transition-opacity ${myColor === 'black' ? 'bg-black' : 'bg-white'}`}></div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                    <button onClick={() => {setRoomId(''); setGameData(null);}} className="px-8 py-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-full text-zinc-500 hover:text-white font-bold text-xs uppercase tracking-widest transition-all">Leave Room</button>
-                </div>
-            );
-        }
+        const ALL_STAGES = generateStages();
 
         function App() {
-            const [user, setUser] = useState(null);
-            const [activeTab, setActiveTab] = useState('omok');
-            const [isInitialLoading, setIsInitialLoading] = useState(true);
+            const [selectedStage, setSelectedStage] = useState(null);
+            const [filter, setFilter] = useState('ALL');
+            const [searchQuery, setSearchQuery] = useState('');
 
-            useEffect(() => {
-                const startAuth = async () => {
-                    try {
-                        const unsubscribe = auth.onAuthStateChanged(async (u) => {
-                            if (u) {
-                                setUser(u);
-                                setIsInitialLoading(false);
-                            } else {
-                                try {
-                                    await auth.signInAnonymously();
-                                } catch (e) {
-                                    console.error("Auth Error:", e);
-                                    setUser({ uid: 'offline-user-' + Math.random().toString(36).substr(2, 5) });
-                                    setIsInitialLoading(false);
-                                }
-                            }
-                        });
-                        return () => unsubscribe();
-                    } catch (e) {
-                        setIsInitialLoading(false);
-                        setUser({ uid: 'error-user' });
-                    }
-                };
-                
-                startAuth();
-            }, []);
-
-            if (isInitialLoading) return (
-                <div className="h-screen flex flex-col items-center justify-center gap-4">
-                    <div className="loader"></div>
-                    <div className="font-black tracking-[0.2em] text-orange-500 animate-pulse text-sm">INITIALIZING ARCADE-X</div>
-                </div>
-            );
+            const filteredStages = useMemo(() => {
+                return ALL_STAGES.filter(stage => {
+                    const matchesFilter = filter === 'ALL' || stage.cat === filter;
+                    const matchesSearch = stage.name.toLowerCase().includes(searchQuery.toLowerCase());
+                    return matchesFilter && matchesSearch;
+                });
+            }, [filter, searchQuery]);
 
             return (
-                <div className="min-h-screen flex flex-col bg-[#09090b]">
-                    <nav className="p-4 md:p-6 border-b border-zinc-900 flex justify-between items-center bg-zinc-950/50 sticky top-0 z-50 backdrop-blur-xl">
+                <div className="min-h-screen flex flex-col bg-[#09090b] relative">
+                    <div className="glow-bg"></div>
+                    
+                    <nav className="p-4 md:p-6 flex justify-between items-center bg-zinc-950/50 border-b border-zinc-900 backdrop-blur-xl z-50">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl flex items-center justify-center font-black text-white italic shadow-lg shadow-orange-900/20">A</div>
-                            <span className="font-black text-2xl tracking-tighter hidden sm:block">ARCADE-X</span>
+                            <span className="font-black text-2xl tracking-tighter">ARCADE-X</span>
                         </div>
-                        <div className="flex bg-zinc-900/50 p-1 rounded-xl border border-zinc-800">
-                            <button onClick={() => setActiveTab('omok')} className={`px-5 py-2 rounded-lg font-bold text-xs md:text-sm transition-all ${activeTab === 'omok' ? 'bg-zinc-800 text-white shadow-inner' : 'text-zinc-500 hover:text-zinc-300'}`}>OMOK</button>
-                            <button onClick={() => setActiveTab('tetris')} className={`px-5 py-2 rounded-lg font-bold text-xs md:text-sm transition-all ${activeTab === 'tetris' ? 'bg-zinc-800 text-white shadow-inner' : 'text-zinc-500 hover:text-zinc-300'}`}>TETRIS</button>
-                        </div>
+                        {selectedStage && (
+                            <button 
+                                onClick={() => setSelectedStage(null)}
+                                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg text-xs font-bold transition-all text-orange-500"
+                            >
+                                BACK TO MENU
+                            </button>
+                        )}
                     </nav>
-                    <main className="flex-grow flex flex-col items-center justify-center p-4">
-                        {activeTab === 'omok' ? (
-                            <OmokGame user={user} />
+
+                    <main className="flex-grow flex flex-col items-center p-4 overflow-hidden">
+                        {!selectedStage ? (
+                            <div className="w-full max-w-6xl h-full flex flex-col animate-in fade-in duration-500">
+                                <div className="text-center mb-6">
+                                    <h2 className="text-3xl font-black italic tracking-tighter text-white mb-2 uppercase">Select your Challenge</h2>
+                                    <p className="text-zinc-500 text-sm">100개 이상의 다양한 스테이지 패턴이 준비되어 있습니다.</p>
+                                </div>
+
+                                {/* 필터 및 검색 바 */}
+                                <div className="flex flex-col md:flex-row gap-4 mb-6 items-center justify-between bg-zinc-900/30 p-4 rounded-2xl border border-zinc-800">
+                                    <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 no-scrollbar">
+                                        {CATEGORIES.map(cat => (
+                                            <button
+                                                key={cat}
+                                                onClick={() => setFilter(cat)}
+                                                className={`px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest transition-all ${filter === cat ? 'bg-orange-600 text-white' : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'}`}
+                                            >
+                                                {cat}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Search Stage..." 
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="bg-black border border-zinc-800 rounded-lg px-4 py-1.5 text-xs w-full md:w-64 focus:border-orange-500 outline-none transition-all"
+                                    />
+                                </div>
+                                
+                                {/* 스테이지 리스트 그리드 */}
+                                <div className="flex-grow overflow-y-auto custom-scroll pr-2 pb-10">
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                                        {filteredStages.map((stage) => (
+                                            <div 
+                                                key={stage.id}
+                                                onClick={() => setSelectedStage(stage.id)}
+                                                className="stage-card cursor-pointer bg-zinc-900/40 border border-zinc-800/50 p-4 rounded-xl flex flex-col items-center text-center group"
+                                            >
+                                                <div className="text-2xl mb-2 group-hover:animate-bounce">{stage.icon}</div>
+                                                <h3 className="font-bold text-xs text-zinc-200 mb-1 truncate w-full">{stage.name}</h3>
+                                                <span className="text-[9px] text-zinc-600 font-bold uppercase tracking-tighter">{stage.cat}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {filteredStages.length === 0 && (
+                                        <div className="text-center py-20 text-zinc-600 font-bold">No stages found.</div>
+                                    )}
+                                </div>
+                            </div>
                         ) : (
-                            <div className="w-full max-w-4xl h-full flex flex-col items-center">
-                                <iframe 
-                                    src="https://jinuk97.github.io/tetris/" 
-                                    className="tetris-container shadow-2xl border-4 border-zinc-800"
-                                    title="Tetris Game"
-                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                    allowFullScreen
-                                ></iframe>
-                                <p className="mt-4 text-zinc-500 text-xs font-bold uppercase tracking-widest animate-pulse">
-                                    Use Arrow Keys to Play Tetris
-                                </p>
+                            <div className="w-full flex flex-col items-center animate-in slide-in-from-bottom duration-500">
+                                <div className="mb-4 flex items-center gap-3 bg-zinc-900/80 px-4 py-2 rounded-full border border-zinc-800">
+                                    <span className="text-orange-500 font-bold text-[10px] uppercase tracking-widest">Stage Active:</span>
+                                    <span className="font-black text-white text-xs uppercase tracking-tighter">
+                                        {ALL_STAGES.find(s => s.id === selectedStage)?.name}
+                                    </span>
+                                </div>
+                                
+                                <div className="tetris-wrapper relative group">
+                                    <iframe 
+                                        src={`https://jinuk97.github.io/tetris/?stage=${selectedStage}`} 
+                                        className="tetris-iframe"
+                                        title="Tetris Game"
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                        allowFullScreen
+                                    ></iframe>
+                                    
+                                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-6 py-2 rounded-full border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                        <p className="text-zinc-300 text-[9px] font-bold uppercase tracking-widest flex gap-4">
+                                            <span>← → : Move</span>
+                                            <span>↑ : Rotate</span>
+                                            <span>Space : Hard Drop</span>
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     </main>
-                    <footer className="p-6 text-center text-[10px] text-zinc-700 font-bold tracking-widest uppercase border-t border-zinc-900">
-                        &copy; 2024 Arcade-X Gaming Environment
+
+                    <footer className="p-3 text-center border-t border-zinc-900 bg-zinc-950/30">
+                        <p className="text-[9px] text-zinc-700 font-bold tracking-widest uppercase">
+                            Total Stages: {ALL_STAGES.length} • ARCADE-X Pro
+                        </p>
                     </footer>
                 </div>
             );
