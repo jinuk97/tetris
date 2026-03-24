@@ -1,635 +1,499 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tetris - Heart Mission</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
-        
-        body {
-            background-color: #020617;
-            color: #f8fafc;
-            font-family: 'Pretendard', -apple-system, sans-serif;
-            overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-        }
-        
-        .game-wrapper {
-            display: flex;
-            gap: 20px;
-            padding: 30px;
-            background: linear-gradient(145deg, #1e293b, #020617);
-            border-radius: 20px;
-            box-shadow: 0 0 60px rgba(244, 63, 94, 0.3);
-            border: 2px solid #f43f5e;
-            position: relative;
-        }
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, doc, setDoc, onSnapshot, updateDoc, collection } from 'firebase/firestore';
 
-        .shake {
-            animation: shake 0.5s infinite;
-        }
-        @keyframes shake {
-            0% { transform: translate(1px, 1px) rotate(0deg); }
-            10% { transform: translate(-1px, -2px) rotate(-1deg); }
-            20% { transform: translate(-3px, 0px) rotate(1deg); }
-            30% { transform: translate(3px, 2px) rotate(0deg); }
-            40% { transform: translate(1px, -1px) rotate(1deg); }
-            50% { transform: translate(-1px, 2px) rotate(-1deg); }
-            100% { transform: translate(1px, 1px) rotate(0deg); }
-        }
+// --- Firebase Setup ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'game-platform-001';
 
-        .side-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            width: 140px;
-        }
+const BOARD_SIZE = 15;
 
-        .display-box {
-            background: rgba(0, 0, 0, 0.6);
-            border: 2px solid #f43f5e;
-            border-radius: 12px;
-            padding: 10px;
-            text-align: center;
-            box-shadow: inset 0 0 10px rgba(244, 63, 94, 0.2);
-        }
+// ==========================================
+// [COMPONENT] Main App with Navigation
+// ==========================================
+export default function App() {
+  const [activeTab, setActiveTab] = useState('omok'); // 'omok' or 'tetris'
+  const [user, setUser] = useState(null);
 
-        .display-label {
-            font-size: 11px;
-            color: #f43f5e;
-            margin-bottom: 3px;
-            font-weight: bold;
-            text-shadow: 0 0 5px rgba(244, 63, 94, 0.5);
-        }
+  useEffect(() => {
+    const initAuth = async () => {
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
 
-        canvas {
-            background-color: #000;
-            border: 4px solid #f43f5e;
-            border-radius: 8px;
-            box-shadow: inset 0 0 30px rgba(244, 63, 94, 0.4);
-        }
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-zinc-950 font-sans">
+        <div className="text-xl font-bold animate-pulse text-rose-500">CONNECTING...</div>
+      </div>
+    );
+  }
 
-        .stat-value {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 1.1rem;
-            color: #ffffff;
-        }
-
-        .alert-text {
-            position: absolute;
-            left: 50%;
-            top: 45%;
-            transform: translate(-50%, -50%);
-            font-family: 'Orbitron', sans-serif;
-            font-size: 2.5rem;
-            font-weight: bold;
-            text-align: center;
-            pointer-events: none;
-            opacity: 0;
-            z-index: 50;
-            white-space: nowrap;
-            text-shadow: 0 0 20px rgba(244, 63, 94, 0.8);
-        }
-
-        #overlay {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.85);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 100;
-            border-radius: 20px;
-            backdrop-filter: blur(4px);
-        }
-
-        .btn {
-            background: #f43f5e;
-            color: white;
-            padding: 14px 40px;
-            border-radius: 8px;
-            font-weight: bold;
-            font-family: 'Orbitron', sans-serif;
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            margin-top: 20px;
-            text-transform: uppercase;
-            border: none;
-            box-shadow: 0 0 15px rgba(244, 63, 94, 0.4);
-            letter-spacing: 1px;
-        }
-
-        .btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 0 30px rgba(244, 63, 94, 0.7);
-            background: #fb7185;
-        }
-
-        .btn:active {
-            transform: scale(0.95);
-        }
-
-        .game-title {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 2.5rem;
-            background: linear-gradient(to bottom, #fff, #f43f5e);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }
-    </style>
-</head>
-<body>
-
-<div id="wrapper" class="game-wrapper relative">
-    <div class="side-panel">
-        <div class="display-box">
-            <div class="display-label">HOLD (C)</div>
-            <canvas id="hold-canvas" width="100" height="100"></canvas>
+  return (
+    <div className="min-h-screen bg-zinc-950 text-white flex flex-col">
+      {/* Navigation Bar */}
+      <nav className="bg-zinc-900 border-b border-zinc-800 p-4 sticky top-0 z-50 shadow-xl">
+        <div className="max-w-6xl mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-rose-600 rounded-lg flex items-center justify-center font-black italic">G</div>
+            <span className="font-black text-xl tracking-tighter">ARCADE-X</span>
+          </div>
+          <div className="flex gap-1 bg-black p-1 rounded-xl border border-zinc-800">
+            <button 
+              onClick={() => setActiveTab('omok')}
+              className={`px-6 py-2 rounded-lg font-bold transition-all ${activeTab === 'omok' ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              오목 (Renju)
+            </button>
+            <button 
+              onClick={() => setActiveTab('tetris')}
+              className={`px-6 py-2 rounded-lg font-bold transition-all ${activeTab === 'tetris' ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              테트리스
+            </button>
+          </div>
+          <div className="hidden md:block text-[10px] text-zinc-600 font-mono">ID: {user.uid.substring(0,8)}</div>
         </div>
-        <div class="display-box">
-            <div class="display-label">HEART LEFT</div>
-            <div id="gray-count" class="stat-value text-rose-500">0</div>
-            <div class="text-[9px] text-rose-300 mt-1">BREAK THE HEART</div>
-        </div>
+      </nav>
+
+      {/* Content Area */}
+      <main className="flex-grow flex flex-col items-center py-8">
+        {activeTab === 'omok' ? <OmokGame user={user} /> : <TetrisGame />}
+      </main>
     </div>
+  );
+}
 
-    <div class="relative">
-        <canvas id="tetris" width="300" height="600"></canvas>
-        <div id="combo-alert" class="alert-text text-rose-500">COMBO</div>
-        <div id="stage-alert" class="alert-text text-white">HEART MISSION</div>
-    </div>
+// ==========================================
+// [COMPONENT] Omok Online (Renju Rules)
+// ==========================================
+function OmokGame({ user }) {
+  const [roomId, setRoomId] = useState('');
+  const [gameData, setGameData] = useState(null);
+  const [inputRoomId, setInputRoomId] = useState('');
+  const [myColor, setMyColor] = useState(null);
+  const [forbiddenMessage, setForbiddenMessage] = useState('');
 
-    <div class="side-panel">
-        <div class="display-box">
-            <div class="display-label">NEXT</div>
-            <canvas id="next-canvas" width="100" height="100"></canvas>
-        </div>
-        <div class="display-box">
-            <div class="display-label">LEVEL</div>
-            <div id="stage" class="stat-value">1</div>
-        </div>
-        <div class="display-box">
-            <div class="display-label">SCORE</div>
-            <div id="score" class="stat-value text-sm">0</div>
-        </div>
-        
-        <div class="mt-auto text-[9px] text-rose-400/50 leading-tight p-2 font-mono">
-            [CONTROLS]<br>
-            - ARROWS: MOVE & ROTATE<br>
-            - SPACE: HARD DROP<br>
-            - C: HOLD PIECE<br>
-            - P: PAUSE
-        </div>
-    </div>
+  useEffect(() => {
+    if (!user || !roomId) return;
+    const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+    const unsubscribe = onSnapshot(gameDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setGameData(data);
+        if (data.player1 === user.uid) setMyColor('black');
+        else if (data.player2 === user.uid) setMyColor('white');
+        else if (!data.player2 && data.player1 !== user.uid) {
+          updateDoc(gameDocRef, { player2: user.uid });
+          setMyColor('white');
+        }
+      } else {
+        setDoc(gameDocRef, {
+          board: Array(BOARD_SIZE * BOARD_SIZE).fill(null),
+          turn: 'black',
+          player1: user.uid,
+          player2: null,
+          winner: null,
+          lastMove: null,
+          createdAt: Date.now()
+        });
+        setMyColor('black');
+      }
+    }, (error) => console.error(error));
+    return () => unsubscribe();
+  }, [user, roomId]);
 
-    <!-- Overlay UI for Start, Pause, GameOver -->
-    <div id="overlay">
-        <h1 id="main-title" class="game-title">HEART TETRIS</h1>
-        <p id="overlay-subtext" class="text-rose-200 text-sm mb-4">Break the gray heart to advance</p>
-        <div id="score-result" class="text-white mb-2 hidden">Score: 0</div>
-        <button id="start-btn" class="btn" onclick="startGame()">START MISSION</button>
-    </div>
-</div>
+  // --- Renju Rules (Forbidden Moves for Black) ---
+  const checkRenjuRules = (board, index, color) => {
+    if (color === 'white') return { forbidden: false };
 
-<script>
-    const canvas = document.getElementById('tetris');
-    const context = canvas.getContext('2d');
-    const holdCanvas = document.getElementById('hold-canvas');
-    const holdContext = holdCanvas.getContext('2d');
-    const nextCanvas = document.getElementById('next-canvas');
-    const nextContext = nextCanvas.getContext('2d');
-    const wrapper = document.getElementById('wrapper');
-
-    const scoreElement = document.getElementById('score');
-    const stageElement = document.getElementById('stage');
-    const grayCountElement = document.getElementById('gray-count');
-    const comboAlert = document.getElementById('combo-alert');
-    const stageAlert = document.getElementById('stage-alert');
+    const r = Math.floor(index / BOARD_SIZE);
+    const c = index % BOARD_SIZE;
+    const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
     
-    const overlay = document.getElementById('overlay');
-    const mainTitle = document.getElementById('main-title');
-    const overlaySubtext = document.getElementById('overlay-subtext');
-    const startBtn = document.getElementById('start-btn');
-    const scoreResult = document.getElementById('score-result');
+    let fours = 0;
+    let threes = 0;
 
-    context.scale(30, 30);
-    holdContext.scale(25, 25);
-    nextContext.scale(25, 25);
+    for (const [dr, dc] of directions) {
+      let line = 1;
+      // Check 6+ (Overline) for Black
+      for (let i = 1; i < 7; i++) {
+        const nr = r + dr * i, nc = c + dc * i;
+        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr * BOARD_SIZE + nc] === 'black') line++;
+        else break;
+      }
+      for (let i = 1; i < 7; i++) {
+        const nr = r - dr * i, nc = c - dc * i;
+        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr * BOARD_SIZE + nc] === 'black') line++;
+        else break;
+      }
 
-    function createPiece(type) {
-        if (type === 'I') return [[0,1,0,0],[0,1,0,0],[0,1,0,0],[0,1,0,0]];
-        if (type === 'L') return [[0,2,0],[0,2,0],[0,2,2]];
-        if (type === 'J') return [[0,3,0],[0,3,0],[3,3,0]];
-        if (type === 'O') return [[4,4],[4,4]];
-        if (type === 'Z') return [[5,5,0],[0,5,5],[0,0,0]];
-        if (type === 'S') return [[0,6,6],[6,6,0],[0,0,0]];
-        if (type === 'T') return [[0,7,0],[7,7,7],[0,0,0]];
+      if (line > 5) return { forbidden: true, reason: '장주(6목 이상) 금지' };
+      
+      // Counting Open Threes and Fours (Simplified for logic)
+      // Note: Full Renju evaluation is complex, this is a robust approximation
+      if (line === 4) fours++;
+      if (line === 3) threes++;
     }
 
-    const colors = [
-        null,
-        '#06b6d4', // I
-        '#f97316', // L
-        '#3b82f6', // J
-        '#eab308', // O
-        '#ef4444', // Z
-        '#22c55e', // S
-        '#a855f7', // T
-        '#475569', // 8: Gray Block
-    ];
+    if (fours >= 2) return { forbidden: true, reason: '4-4 금수' };
+    if (threes >= 2) return { forbidden: true, reason: '3-3 금수' };
 
-    function createMatrix(w, h) {
-        const matrix = [];
-        while (h--) matrix.push(new Array(w).fill(0));
-        return matrix;
+    return { forbidden: false };
+  };
+
+  const checkWinner = (board, index, color) => {
+    const r = Math.floor(index / BOARD_SIZE);
+    const c = index % BOARD_SIZE;
+    const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
+    for (const [dr, dc] of directions) {
+      let count = 1;
+      for (let i = 1; i < 5; i++) {
+        const nr = r + dr * i, nc = c + dc * i;
+        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr * BOARD_SIZE + nc] === color) count++;
+        else break;
+      }
+      for (let i = 1; i < 5; i++) {
+        const nr = r - dr * i, nc = c - dc * i;
+        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr * BOARD_SIZE + nc] === color) count++;
+        else break;
+      }
+      // Renju: Black must be exactly 5. White can be 5 or more.
+      if (color === 'black' && count === 5) return true;
+      if (color === 'white' && count >= 5) return true;
+    }
+    return false;
+  };
+
+  const placeStone = async (index) => {
+    if (!gameData || gameData.winner || gameData.board[index] || gameData.turn !== myColor || !gameData.player2) return;
+
+    // Check Forbidden Moves for Black
+    if (myColor === 'black') {
+      const ruleCheck = checkRenjuRules(gameData.board, index, 'black');
+      if (ruleCheck.forbidden) {
+        setForbiddenMessage(ruleCheck.reason);
+        setTimeout(() => setForbiddenMessage(''), 2000);
+        return;
+      }
     }
 
-    const heartShape = [
-        [0, 1, 1, 0, 0, 1, 1, 0],
-        [1, 1, 1, 1, 1, 1, 1, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1],
-        [0, 1, 1, 1, 1, 1, 1, 0],
-        [0, 0, 1, 1, 1, 1, 0, 0],
-        [0, 0, 0, 1, 1, 0, 0, 0]
-    ];
+    const newBoard = [...gameData.board];
+    newBoard[index] = myColor;
+    const isWinner = checkWinner(newBoard, index, myColor);
+    const nextTurn = myColor === 'black' ? 'white' : 'black';
 
-    function initStage(level) {
-        arena.forEach(row => row.fill(0));
-        const startY = 19 - heartShape.length;
-        const startX = 1;
+    const gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+    await updateDoc(gameDocRef, {
+      board: newBoard,
+      turn: nextTurn,
+      winner: isWinner ? myColor : null,
+      lastMove: index
+    });
+  };
 
-        heartShape.forEach((row, y) => {
-            row.forEach((val, x) => {
-                if (val === 1) arena[startY + y][startX + x] = 8;
-            });
-        });
+  if (!roomId) {
+    return (
+      <div className="max-w-md w-full bg-zinc-900 p-8 rounded-3xl border border-zinc-800 shadow-2xl">
+        <h2 className="text-3xl font-black mb-6 text-center text-orange-500 italic uppercase">Renju Online</h2>
+        <div className="space-y-4">
+          <button onClick={() => setRoomId(Math.random().toString(36).substring(2, 8).toUpperCase())} className="w-full bg-orange-600 hover:bg-orange-500 py-4 rounded-xl font-bold transition-all shadow-lg active:scale-95">대국 만들기</button>
+          <div className="flex items-center gap-2"><div className="h-px bg-zinc-800 flex-grow"></div><span className="text-[10px] text-zinc-600">OR</span><div className="h-px bg-zinc-800 flex-grow"></div></div>
+          <form onSubmit={(e) => {e.preventDefault(); setRoomId(inputRoomId.toUpperCase())}} className="flex flex-col gap-2">
+            <input type="text" placeholder="방 코드" value={inputRoomId} onChange={(e) => setInputRoomId(e.target.value)} className="bg-black border border-zinc-800 py-4 px-4 rounded-xl text-center font-mono text-xl uppercase" />
+            <button type="submit" className="bg-white text-black py-4 rounded-xl font-bold hover:bg-zinc-200 transition-all active:scale-95">참여하기</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
-        if (level > 1) {
-            for (let i = 0; i < level - 1; i++) {
-                const y = 19 - i;
-                if (y < startY + heartShape.length && y >= startY) continue;
-                for (let x = 0; x < 10; x++) {
-                    if (Math.random() > 0.4) arena[y][x] = 8;
-                }
-            }
-        }
-        countGrayBlocks();
-        updateUI();
-    }
+  return (
+    <div className="flex flex-col items-center gap-6 w-full max-w-[650px] px-4">
+      {/* Room Info */}
+      <div className="w-full flex justify-between items-center bg-zinc-900 p-4 rounded-2xl border border-zinc-800">
+        <div className="font-mono"><span className="text-zinc-500 text-xs block">CODE</span> <span className="text-xl font-black text-orange-500">{roomId}</span></div>
+        <div className="flex items-center gap-3">
+          <div className="text-right"><span className="text-zinc-500 text-xs block">MY SIDE</span> <span className="font-bold">{myColor === 'black' ? '흑 (금수있음)' : '백 (금수없음)'}</span></div>
+          <div className={`w-8 h-8 rounded-full border-2 ${myColor === 'black' ? 'bg-zinc-900 border-zinc-700' : 'bg-zinc-100 border-zinc-300'}`}></div>
+        </div>
+      </div>
 
-    function countGrayBlocks() {
-        let count = 0;
-        arena.forEach(row => {
-            row.forEach(val => { if(val === 8) count++; });
-        });
-        player.grayCount = count;
-        grayCountElement.innerText = count;
-        if (count === 0 && !player.clearing) nextStage();
-    }
+      {/* Status Bar */}
+      <div className="w-full h-12 relative flex items-center justify-center">
+        {forbiddenMessage && <div className="absolute inset-0 bg-rose-600 text-white flex items-center justify-center rounded-xl font-bold animate-pulse z-20">{forbiddenMessage}!</div>}
+        {gameData?.winner ? (
+          <div className="bg-orange-500 text-white w-full h-full flex items-center justify-center rounded-xl font-black text-lg animate-bounce">
+            {gameData.winner === 'black' ? '흑돌' : '백돌'} 승리! 🏆
+          </div>
+        ) : !gameData?.player2 ? (
+          <div className="text-zinc-500 animate-pulse font-bold italic">Waiting for opponent...</div>
+        ) : (
+          <div className={`w-full h-full flex items-center justify-center rounded-xl border font-black transition-all ${gameData.turn === myColor ? 'bg-white text-black border-white' : 'bg-zinc-900 text-zinc-600 border-zinc-800'}`}>
+            {gameData.turn === myColor ? 'YOUR TURN' : 'OPPONENT THINKING...'}
+          </div>
+        )}
+      </div>
 
-    function nextStage() {
-        player.clearing = true;
-        stageAlert.innerText = `HEART CLEARED!`;
-        stageAlert.style.opacity = '1';
-        
-        setTimeout(() => {
-            stageAlert.style.opacity = '0';
-            player.stage++;
-            initStage(player.stage);
-            player.clearing = false;
-            playerReset();
-        }, 1200);
-    }
+      {/* Board */}
+      <div className="relative w-full aspect-square bg-[#dcb35c] p-2 rounded shadow-2xl border-[8px] border-[#c09a4a]">
+        <div className="grid w-full h-full relative" style={{ gridTemplateColumns: `repeat(${BOARD_SIZE}, 1fr)`, gridTemplateRows: `repeat(${BOARD_SIZE}, 1fr)` }}>
+          {Array(BOARD_SIZE * BOARD_SIZE).fill(null).map((_, i) => {
+            const r = Math.floor(i / BOARD_SIZE), c = i % BOARD_SIZE;
+            return (
+              <div key={i} onClick={() => placeStone(i)} className="relative cursor-pointer group flex items-center justify-center">
+                <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                  <div className={`h-[1px] bg-black/40 ${c === 0 ? 'w-1/2 ml-auto' : c === BOARD_SIZE - 1 ? 'w-1/2 mr-auto' : 'w-full'}`}></div>
+                  <div className={`w-[1px] bg-black/40 absolute ${r === 0 ? 'h-1/2 mt-auto' : r === BOARD_SIZE - 1 ? 'h-1/2 mb-auto' : 'h-full'}`}></div>
+                </div>
+                {((r === 3 || r === 7 || r === 11) && (c === 3 || c === 7 || c === 11)) && <div className="absolute w-1.5 h-1.5 bg-black/70 rounded-full"></div>}
+                {gameData?.board[i] && (
+                  <div className={`w-[90%] h-[90%] rounded-full z-10 shadow-lg ${gameData.board[i] === 'black' ? 'bg-gradient-to-br from-zinc-700 to-zinc-950' : 'bg-gradient-to-br from-white to-zinc-200'} ${gameData.lastMove === i ? 'ring-2 ring-red-500 ring-offset-2' : ''}`}></div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <button onClick={() => setRoomId('')} className="text-zinc-500 hover:text-white transition-colors text-sm underline">방 나가기</button>
+    </div>
+  );
+}
 
-    function draw() {
-        context.fillStyle = '#000';
-        context.fillRect(0, 0, canvas.width, canvas.height);
+// ==========================================
+// [COMPONENT] Tetris Heart Mission
+// ==========================================
+function TetrisGame() {
+  const canvasRef = useRef(null);
+  const holdRef = useRef(null);
+  const nextRef = useRef(null);
+  const [gameState, setGameState] = useState({ score: 0, level: 1, heartLeft: 0, status: 'START' });
+  const gameRef = useRef({ arena: null, player: null, lastTime: 0, dropCounter: 0, paused: true });
 
-        context.strokeStyle = player.stage > 5 ? '#450a0a' : '#111827';
-        context.lineWidth = 0.02;
-        for(let i=0; i<=10; i++) { context.beginPath(); context.moveTo(i, 0); context.lineTo(i, 20); context.stroke(); }
-        for(let i=0; i<=20; i++) { context.beginPath(); context.moveTo(0, i); context.lineTo(10, i); context.stroke(); }
+  const COLORS = [null, '#06b6d4', '#f97316', '#3b82f6', '#eab308', '#ef4444', '#22c55e', '#a855f7', '#475569'];
+  const HEART_SHAPE = [[0, 1, 1, 0, 0, 1, 1, 0],[1, 1, 1, 1, 1, 1, 1, 1],[1, 1, 1, 1, 1, 1, 1, 1],[1, 1, 1, 1, 1, 1, 1, 1],[0, 1, 1, 1, 1, 1, 1, 0],[0, 0, 1, 1, 1, 1, 0, 0],[0, 0, 0, 1, 1, 0, 0, 0]];
 
-        drawMatrix(arena, {x: 0, y: 0}, context);
-        if (player.stage < 10) {
-            let ghostAlpha = Math.max(0, 0.15 - (player.stage - 1) * 0.02);
-            if (ghostAlpha > 0) drawGhost(ghostAlpha);
-        }
-        drawMatrix(player.matrix, player.pos, context);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(25, 25);
+    
+    const arena = Array(20).fill(0).map(() => Array(10).fill(0));
+    const player = { pos: {x: 3, y: 0}, matrix: null, next: null, hold: null, score: 0, level: 1, grayCount: 0 };
+    gameRef.current = { arena, player, lastTime: 0, dropCounter: 0, paused: true };
 
-        if (player.grayCount > 40) wrapper.classList.add('shake');
-        else wrapper.classList.remove('shake');
-    }
-
-    function drawMatrix(matrix, offset, ctx) {
-        matrix.forEach((row, y) => {
-            row.forEach((value, x) => {
-                if (value !== 0) {
-                    ctx.fillStyle = colors[value];
-                    ctx.fillRect(x + offset.x, y + offset.y, 1, 1);
-                    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-                    ctx.lineWidth = 0.05;
-                    ctx.strokeRect(x + offset.x, y + offset.y, 1, 1);
-                }
-            });
-        });
-    }
-
-    function drawGhost(alpha) {
-        const ghostPos = { x: player.pos.x, y: player.pos.y };
-        while (!collide(arena, { pos: ghostPos, matrix: player.matrix })) { ghostPos.y++; }
-        ghostPos.y--;
-        context.globalAlpha = alpha;
-        drawMatrix(player.matrix, ghostPos, context);
-        context.globalAlpha = 1.0;
-    }
-
-    function collide(arena, player) {
-        const [m, o] = [player.matrix, player.pos];
-        for (let y = 0; y < m.length; ++y) {
-            for (let x = 0; x < m[y].length; ++x) {
-                if (m[y][x] !== 0 && (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) return true;
-            }
-        }
-        return false;
-    }
-
-    function merge(arena, player) {
-        player.matrix.forEach((row, y) => {
-            row.forEach((value, x) => {
-                if (value !== 0) arena[y + player.pos.y][x + player.pos.x] = value;
-            });
-        });
-        player.lockDownTimer = 0;
-    }
-
-    function arenaSweep() {
-        let count = 0;
-        outer: for (let y = arena.length - 1; y > 0; --y) {
-            for (let x = 0; x < arena[y].length; ++x) {
-                if (arena[y][x] === 0) continue outer;
-            }
-            const row = arena.splice(y, 1)[0].fill(0);
-            arena.unshift(row);
-            ++y;
-            count++;
-        }
-
-        if (count > 0) {
-            player.combo++;
-            player.score += (count * 200) * player.stage + (player.combo * 100);
-            if(player.combo > 1) {
-                comboAlert.innerText = `${player.combo - 1} COMBO`;
-                comboAlert.style.opacity = '1';
-                setTimeout(() => comboAlert.style.opacity = '0', 500);
-            }
-            countGrayBlocks();
-        } else {
-            player.combo = 0;
-        }
-        updateUI();
-    }
-
-    function rotate(matrix, dir) {
-        for (let y = 0; y < matrix.length; ++y) {
-            for (let x = 0; x < y; ++x) {
-                [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
-            }
-        }
-        if (dir > 0) matrix.forEach(row => row.reverse());
-        else matrix.reverse();
-    }
-
-    function playerDrop() {
-        if (paused || !gameStarted || player.clearing) return;
-        player.pos.y++;
-        if (collide(arena, player)) {
-            player.pos.y--;
-            if (player.lockDownTimer >= player.lockDownDelay) {
-                merge(arena, player);
-                playerReset();
-                arenaSweep();
-            }
-        } else {
-            player.lockDownTimer = 0;
-        }
-        dropCounter = 0;
-    }
-
-    function playerHardDrop() {
-        if (paused || !gameStarted || player.clearing) return;
-        let dist = 0;
-        while (!collide(arena, player)) {
-            player.pos.y++;
-            dist++;
-        }
-        player.pos.y--;
-        player.score += dist * 2;
-        merge(arena, player);
-        playerReset();
-        arenaSweep();
-    }
-
-    function playerHold() {
-        if (paused || !gameStarted || player.holdUsed || player.clearing) return;
-        const currentType = player.currentType;
-        if (!player.hold) {
-            player.hold = currentType;
-            playerReset();
-        } else {
-            const temp = player.hold;
-            player.hold = currentType;
-            player.matrix = createPiece(temp);
-            player.currentType = temp;
-            player.pos.y = 0;
-            player.pos.x = 4;
-            if(collide(arena, player)) gameOver();
-        }
-        player.holdUsed = true;
-        player.lockDownTimer = 0;
-        drawSidePreview();
-    }
-
-    function playerMove(dir) {
-        if (paused || !gameStarted || player.clearing) return;
-        player.pos.x += dir;
-        if (collide(arena, player)) {
-            player.pos.x -= dir;
-        } else {
-            if (isOnGround()) player.lockDownTimer = 0;
-        }
-    }
-
-    function playerRotate(dir) {
-        if (paused || !gameStarted || player.clearing) return;
-        const pos = player.pos.x;
-        let offset = 1;
-        rotate(player.matrix, dir);
-        while (collide(arena, player)) {
-            player.pos.x += offset;
-            offset = -(offset + (offset > 0 ? 1 : -1));
-            if (offset > player.matrix[0].length) {
-                rotate(player.matrix, -dir);
-                player.pos.x = pos;
-                return;
-            }
-        }
-        if (isOnGround()) player.lockDownTimer = 0;
-    }
-
-    function isOnGround() {
-        player.pos.y++;
-        const grounded = collide(arena, player);
-        player.pos.y--;
-        return grounded;
-    }
-
-    function getRandomType() {
-        const pieces = 'ILJOTSZ';
-        return pieces[pieces.length * Math.random() | 0];
-    }
-
-    function playerReset() {
-        if (!player.next) player.next = getRandomType();
-        player.currentType = player.next;
-        player.matrix = createPiece(player.currentType);
-        player.next = getRandomType();
-        player.holdUsed = false;
-        player.lockDownTimer = 0;
-        player.pos.y = 0;
-        player.pos.x = 4;
-        if (collide(arena, player)) gameOver();
-        drawSidePreview();
-    }
-
-    function drawSidePreview() {
-        holdContext.clearRect(0, 0, holdCanvas.width, holdCanvas.height);
-        if (player.hold) drawMatrix(createPiece(player.hold), {x: 0.5, y: 0.5}, holdContext);
-        nextContext.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
-        drawMatrix(createPiece(player.next), {x: 0.5, y: 0.5}, nextContext);
-    }
-
-    function updateUI() {
-        scoreElement.innerText = player.score.toLocaleString();
-        stageElement.innerText = player.stage;
-        grayCountElement.innerText = player.grayCount;
-    }
-
-    function gameOver() {
-        paused = true;
-        gameStarted = false;
-        mainTitle.innerText = "MISSION FAILED";
-        mainTitle.style.color = "#f43f5e";
-        overlaySubtext.innerText = "The heart remains unbroken...";
-        scoreResult.innerText = `Final Score: ${player.score.toLocaleString()}`;
-        scoreResult.classList.remove('hidden');
-        startBtn.innerText = "RETRY MISSION";
-        overlay.style.display = 'flex';
-    }
-
-    function startGame() {
-        if (gameStarted && !paused) return;
-        
-        if (!gameStarted) {
-            // New Game Reset
-            player.score = 0; player.stage = 1; player.combo = 0;
-            player.hold = null; player.next = null;
-            initStage(1);
-            playerReset();
-            gameStarted = true;
-        }
-        
-        paused = false;
-        overlay.style.display = 'none';
-        scoreResult.classList.add('hidden');
-        lastTime = performance.now();
-        update();
-    }
-
-    function togglePause() {
-        if (!gameStarted) return;
-        paused = !paused;
-        if (paused) {
-            mainTitle.innerText = "PAUSED";
-            overlaySubtext.innerText = "Take a breath...";
-            startBtn.innerText = "RESUME";
-            overlay.style.display = 'flex';
-        } else {
-            overlay.style.display = 'none';
-            lastTime = performance.now();
-            update();
-        }
-    }
-
-    let dropCounter = 0;
-    let lastTime = 0;
-    let paused = false;
-    let gameStarted = false;
-
-    function update(time = 0) {
-        if (paused || !gameStarted) return;
-        const deltaTime = time - lastTime;
-        lastTime = time;
-
-        const dropInterval = Math.max(50, 700 - (player.stage * 50));
-        dropCounter += deltaTime;
-        
-        if (dropCounter > dropInterval) {
-            playerDrop();
-        }
-
-        if (isOnGround()) {
-            player.lockDownTimer += deltaTime;
-            if (player.lockDownTimer >= player.lockDownDelay) {
-                playerDrop();
-            }
-        }
-
-        draw();
-        requestAnimationFrame(update);
-    }
-
-    const arena = createMatrix(10, 20);
-    const player = {
-        pos: {x: 0, y: 0},
-        matrix: null,
-        currentType: null,
-        next: null,
-        hold: null,
-        holdUsed: false,
-        score: 0,
-        stage: 1,
-        combo: 0,
-        grayCount: 0,
-        clearing: false,
-        lockDownTimer: 0,
-        lockDownDelay: 500
+    const handleKeyDown = (e) => {
+      if (gameRef.current.paused) return;
+      if (e.keyCode === 37) move(-1);
+      else if (e.keyCode === 39) move(1);
+      else if (e.keyCode === 40) drop();
+      else if (e.keyCode === 38) rotate(1);
+      else if (e.keyCode === 32) hardDrop();
     };
 
-    document.addEventListener('keydown', event => {
-        const code = event.keyCode;
-        if (code === 37) playerMove(-1);
-        else if (code === 39) playerMove(1);
-        else if (code === 40) playerDrop();
-        else if (code === 38) playerRotate(1);
-        else if (code === 32) playerHardDrop();
-        else if (code === 67) playerHold();
-        else if (code === 80) togglePause();
-    });
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
-    // Initial Screen Draw
+  const createPiece = (type) => {
+    if (type === 'I') return [[0,1,0,0],[0,1,0,0],[0,1,0,0],[0,1,0,0]];
+    if (type === 'L') return [[0,2,0],[0,2,0],[0,2,2]];
+    if (type === 'J') return [[0,3,0],[0,3,0],[3,3,0]];
+    if (type === 'O') return [[4,4],[4,4]];
+    if (type === 'Z') return [[5,5,0],[0,5,5],[0,0,0]];
+    if (type === 'S') return [[0,6,6],[6,6,0],[0,0,0]];
+    if (type === 'T') return [[0,7,0],[7,7,7],[0,0,0]];
+  };
+
+  const initStage = (level) => {
+    const { arena } = gameRef.current;
+    arena.forEach(row => row.fill(0));
+    const startY = 19 - HEART_SHAPE.length;
+    HEART_SHAPE.forEach((row, y) => {
+      row.forEach((val, x) => { if(val === 1) arena[startY + y][1 + x] = 8; });
+    });
+    countGray();
+  };
+
+  const countGray = () => {
+    let count = 0;
+    gameRef.current.arena.forEach(row => row.forEach(v => { if(v === 8) count++; }));
+    gameRef.current.player.grayCount = count;
+    setGameState(prev => ({ ...prev, heartLeft: count }));
+  };
+
+  const draw = () => {
+    const ctx = canvasRef.current.getContext('2d');
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0,0,10,20);
+    drawMatrix(gameRef.current.arena, {x:0, y:0}, ctx);
+    drawMatrix(gameRef.current.player.matrix, gameRef.current.player.pos, ctx);
+  };
+
+  const drawMatrix = (matrix, offset, ctx) => {
+    if (!matrix) return;
+    matrix.forEach((row, y) => {
+      row.forEach((val, x) => {
+        if(val !== 0) {
+          ctx.fillStyle = COLORS[val];
+          ctx.fillRect(x + offset.x, y + offset.y, 1, 1);
+          ctx.strokeStyle = '#000'; ctx.lineWidth = 0.05;
+          ctx.strokeRect(x + offset.x, y + offset.y, 1, 1);
+        }
+      });
+    });
+  };
+
+  const collide = (arena, player) => {
+    const [m, o] = [player.matrix, player.pos];
+    for(let y=0; y<m.length; y++) {
+      for(let x=0; x<m[y].length; x++) {
+        if(m[y][x] !== 0 && (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) return true;
+      }
+    }
+    return false;
+  };
+
+  const merge = () => {
+    const { arena, player } = gameRef.current;
+    player.matrix.forEach((row, y) => {
+      row.forEach((val, x) => {
+        if(val !== 0) arena[y + player.pos.y][x + player.pos.x] = val;
+      });
+    });
+  };
+
+  const playerReset = () => {
+    const pieces = 'ILJOTSZ';
+    const player = gameRef.current.player;
+    player.matrix = createPiece(pieces[pieces.length * Math.random() | 0]);
+    player.pos.y = 0;
+    player.pos.x = 4;
+    if(collide(gameRef.current.arena, player)) {
+      setGameState(p => ({...p, status: 'GAME OVER'}));
+      gameRef.current.paused = true;
+    }
+    countGray();
+  };
+
+  const arenaSweep = () => {
+    let rowCount = 0;
+    const { arena, player } = gameRef.current;
+    outer: for(let y = arena.length - 1; y > 0; y--) {
+      for(let x = 0; x < arena[y].length; x++) {
+        if(arena[y][x] === 0) continue outer;
+      }
+      const row = arena.splice(y, 1)[0].fill(0);
+      arena.unshift(row);
+      y++;
+      rowCount++;
+    }
+    if(rowCount > 0) {
+      player.score += rowCount * 100 * player.level;
+      setGameState(p => ({...p, score: player.score}));
+      countGray();
+    }
+  };
+
+  const drop = () => {
+    const { player, arena } = gameRef.current;
+    player.pos.y++;
+    if(collide(arena, player)) {
+      player.pos.y--;
+      merge();
+      playerReset();
+      arenaSweep();
+    }
+    gameRef.current.dropCounter = 0;
+  };
+
+  const hardDrop = () => {
+    while(!collide(gameRef.current.arena, gameRef.current.player)) { gameRef.current.player.pos.y++; }
+    gameRef.current.player.pos.y--;
+    merge();
+    playerReset();
+    arenaSweep();
+  };
+
+  const move = (dir) => {
+    gameRef.current.player.pos.x += dir;
+    if(collide(gameRef.current.arena, gameRef.current.player)) gameRef.current.player.pos.x -= dir;
+  };
+
+  const rotate = (dir) => {
+    const matrix = gameRef.current.player.matrix;
+    for(let y=0; y<matrix.length; y++) {
+      for(let x=0; x<y; x++) [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
+    }
+    if(dir > 0) matrix.forEach(r => r.reverse()); else matrix.reverse();
+    if(collide(gameRef.current.arena, gameRef.current.player)) {
+      if(dir > 0) matrix.forEach(r => r.reverse()); else matrix.reverse();
+      for(let y=0; y<matrix.length; y++) {
+        for(let x=0; x<y; x++) [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
+      }
+    }
+  };
+
+  const update = (time = 0) => {
+    if(gameRef.current.paused) return;
+    const deltaTime = time - gameRef.current.lastTime;
+    gameRef.current.lastTime = time;
+    gameRef.current.dropCounter += deltaTime;
+    if(gameRef.current.dropCounter > 800) drop();
+    draw();
+    requestAnimationFrame(update);
+  };
+
+  const start = () => {
     initStage(1);
-    drawMatrix(arena, {x: 0, y: 0}, context);
-</script>
-</body>
-</html>
+    playerReset();
+    gameRef.current.paused = false;
+    setGameState(p => ({...p, status: 'PLAYING', score: 0}));
+    update();
+  };
+
+  return (
+    <div className="flex gap-8 p-6 bg-zinc-900 rounded-3xl border border-rose-900/30 shadow-[0_0_50px_rgba(225,29,72,0.15)] relative overflow-hidden">
+      <div className="flex flex-col gap-4 w-32">
+        <div className="bg-black/60 p-3 rounded-xl border border-rose-500/30 text-center">
+          <span className="text-[10px] text-rose-500 font-bold block uppercase mb-1">Heart Mission</span>
+          <span className="text-2xl font-black text-white">{gameState.heartLeft}</span>
+        </div>
+        <div className="bg-black/60 p-3 rounded-xl border border-zinc-800 text-center">
+          <span className="text-[10px] text-zinc-500 font-bold block uppercase mb-1">Score</span>
+          <span className="text-lg font-bold text-white">{gameState.score}</span>
+        </div>
+      </div>
+
+      <div className="relative">
+        <canvas ref={canvasRef} width={250} height={500} className="bg-black rounded-lg border-2 border-rose-600 shadow-inner" />
+        {gameState.status !== 'PLAYING' && (
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
+            <h3 className="text-3xl font-black text-rose-500 mb-2">{gameState.status === 'START' ? 'HEART MISSION' : 'MISSION FAILED'}</h3>
+            <p className="text-zinc-400 text-sm mb-6">하트 블록을 모두 제거하세요!</p>
+            <button onClick={start} className="bg-rose-600 hover:bg-rose-500 px-8 py-3 rounded-full font-bold shadow-lg transition-transform active:scale-95">START MISSION</button>
+          </div>
+        )}
+      </div>
+
+      <div className="w-32 flex flex-col justify-end text-[10px] text-zinc-600 font-mono gap-1">
+        <p>[CONTROLS]</p>
+        <p>← → : MOVE</p>
+        <p>↑ : ROTATE</p>
+        <p>↓ : DROP</p>
+        <p>SPACE : HARD DROP</p>
+      </div>
+    </div>
+  );
+}
