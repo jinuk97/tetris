@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ARCADE-X: Tetris 100+ Stages</title>
+    <title>ARCADE-X: Tetris Internal Edition</title>
     <!-- Tailwind CSS for Styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React & Babel for Browser Rendering -->
@@ -20,22 +20,11 @@
             overflow: hidden; 
         }
         
-        .tetris-wrapper {
-            width: 100%;
-            height: calc(100vh - 180px);
-            max-width: 900px;
-            margin: 0 auto;
-            background: #000;
-            border-radius: 1.5rem;
-            overflow: hidden;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            border: 2px solid #18181b;
-        }
-
-        .tetris-iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
+        .game-canvas {
+            background: #111;
+            border: 4px solid #27272a;
+            border-radius: 12px;
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
         }
 
         .glow-bg {
@@ -50,12 +39,10 @@
             z-index: -1;
         }
 
-        /* 커스텀 스크롤바 */
         .custom-scroll::-webkit-scrollbar { width: 6px; }
         .custom-scroll::-webkit-scrollbar-track { background: transparent; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #27272a; border-radius: 10px; }
-        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
-
+        
         .stage-card {
             transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
@@ -70,71 +57,253 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useMemo } = React;
+        const { useState, useMemo, useEffect, useRef } = React;
 
-        // 100개 이상의 스테이지를 생성하기 위한 헬퍼 데이터
-        const CATEGORIES = ["ALL", "SHAPES", "ALPHABET", "EMOJI", "CHALLENGE"];
-        
+        // --- 테트리스 로직 상수 ---
+        const COLS = 10;
+        const ROWS = 20;
+        const BLOCK_SIZE = 30;
+        const COLORS = [
+            null,
+            '#FF0D72', '#0DC2FF', '#0DFF72',
+            '#F538FF', '#FF8E0D', '#FFE138', '#3877FF',
+            '#808080' // 장애물 색상
+        ];
+
+        const SHAPES = [
+            [],
+            [[1, 1, 1, 1]], // I
+            [[2, 2, 2], [0, 0, 2]], // J
+            [[3, 3, 3], [3, 0, 0]], // L
+            [[4, 4], [4, 4]], // O
+            [[0, 5, 5], [5, 5, 0]], // S
+            [[6, 6, 6], [0, 6, 0]], // T
+            [[7, 7, 0], [0, 7, 7]], // Z
+        ];
+
+        // 스테이지 데이터 생성 (예시 패턴들)
         const generateStages = () => {
             const stages = [
-                { id: 'classic', name: 'Classic', desc: 'No obstacles', icon: '⬜', cat: 'ALL' },
-                { id: 'heart', name: 'Heart', desc: 'Love pattern', icon: '❤️', cat: 'SHAPES' },
-                { id: 'cross', name: 'X-Cross', desc: 'Intersection', icon: '❌', cat: 'SHAPES' },
-                { id: 'pyramid', name: 'Pyramid', desc: 'Ancient structure', icon: '⛰️', cat: 'SHAPES' },
-                { id: 'diamond', name: 'Diamond', desc: 'Sparkling block', icon: '💎', cat: 'SHAPES' },
+                { id: 'classic', name: 'Classic', icon: '⬜', cat: 'BASIC' },
+                { id: 'heart', name: 'Heart', icon: '❤️', cat: 'SHAPES' },
+                { id: 'cross', name: 'X-Cross', icon: '❌', cat: 'SHAPES' },
+                { id: 'pyramid', name: 'Pyramid', icon: '⛰️', cat: 'SHAPES' },
             ];
-
-            // 알파벳 스테이지 추가 (A-Z)
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").forEach(char => {
-                stages.push({
-                    id: `alpha-${char.toLowerCase()}`,
-                    name: `Stage ${char}`,
-                    desc: `Pattern shaped like ${char}`,
-                    icon: '🔡',
-                    cat: 'ALPHABET'
-                });
-            });
-
-            // 이모지 및 특수 패턴 추가 (나머지 100개 채우기)
-            const emojis = ['🔥', '⭐', '🍀', '💀', '👻', '👾', '🚀', '🌈', '⚡', '🌊', '🍄', '🎈', '🎨', '🎯', '🧩', '🌙', '☀️', '🌀', '🔔', '🛡️'];
-            emojis.forEach((emoji, idx) => {
-                stages.push({
-                    id: `emoji-${idx}`,
-                    name: `Special ${idx + 1}`,
-                    desc: `Extreme ${emoji} challenge`,
-                    icon: emoji,
-                    cat: 'EMOJI'
-                });
-            });
-
-            // 챌린지 모드 (레벨 기반)
-            for(let i=1; i<=50; i++) {
-                stages.push({
-                    id: `lv-${i}`,
-                    name: `Level ${i}`,
-                    desc: `High difficulty level ${i}`,
-                    icon: '🚧',
-                    cat: 'CHALLENGE'
-                });
+            
+            // 100개를 채우기 위한 루프
+            for(let i=1; i<=100; i++) {
+                if (i > 4) {
+                    stages.push({
+                        id: `st-${i}`,
+                        name: `Level ${i}`,
+                        icon: i % 2 === 0 ? '👾' : '💎',
+                        cat: i < 30 ? 'NORMAL' : 'HARD'
+                    });
+                }
             }
-
             return stages;
         };
 
         const ALL_STAGES = generateStages();
 
+        // --- 테트리스 게임 컴포넌트 ---
+        function TetrisGame({ stageId, onBack }) {
+            const canvasRef = useRef(null);
+            const [score, setScore] = useState(0);
+            const [gameOver, setGameOver] = useState(false);
+            
+            // 게임 상태 관리용 ref
+            const gameState = useRef({
+                grid: Array.from({ length: ROWS }, () => Array(COLS).fill(0)),
+                piece: null,
+                pos: { x: 0, y: 0 },
+                dropCounter: 0,
+                dropInterval: 1000,
+                lastTime: 0,
+            });
+
+            // 스테이지별 초기 장애물 설정
+            useEffect(() => {
+                const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+                if (stageId === 'heart') {
+                    // 하트 패턴 하단 배치
+                    [ [18,4],[18,5],[17,3],[17,4],[17,5],[17,6],[16,2],[16,3],[16,4],[16,5],[16,6],[16,7] ].forEach(([r,c]) => grid[r][c] = 8);
+                } else if (stageId === 'cross') {
+                    for(let i=0; i<5; i++) { grid[19-i][i+2] = 8; grid[19-i][7-i] = 8; }
+                } else if (stageId.startsWith('st-')) {
+                    // 랜덤 장애물 예시
+                    for(let i=0; i<10; i++) grid[ROWS-1-Math.floor(Math.random()*3)][Math.floor(Math.random()*COLS)] = 8;
+                }
+                gameState.current.grid = grid;
+                resetPiece();
+                
+                let requestId;
+                const update = (time = 0) => {
+                    if (gameOver) return;
+                    const deltaTime = time - gameState.current.lastTime;
+                    gameState.current.lastTime = time;
+                    gameState.current.dropCounter += deltaTime;
+                    if (gameState.current.dropCounter > gameState.current.dropInterval) {
+                        drop();
+                    }
+                    draw();
+                    requestId = requestAnimationFrame(update);
+                };
+                update();
+
+                return () => cancelAnimationFrame(requestId);
+            }, [stageId, gameOver]);
+
+            const resetPiece = () => {
+                const id = Math.floor(Math.random() * (SHAPES.length - 1)) + 1;
+                gameState.current.piece = SHAPES[id];
+                gameState.current.pos = { x: Math.floor(COLS / 2) - 1, y: 0 };
+                if (collide(gameState.current.grid, gameState.current.piece, gameState.current.pos)) {
+                    setGameOver(true);
+                }
+            };
+
+            const collide = (grid, piece, pos) => {
+                for (let y = 0; y < piece.length; ++y) {
+                    for (let x = 0; x < piece[y].length; ++x) {
+                        if (piece[y][x] !== 0 && (grid[y + pos.y] && grid[y + pos.y][x + pos.x]) !== 0) return true;
+                    }
+                }
+                return false;
+            };
+
+            const merge = (grid, piece, pos) => {
+                piece.forEach((row, y) => {
+                    row.forEach((value, x) => {
+                        if (value !== 0) grid[y + pos.y][x + pos.x] = value;
+                    });
+                });
+            };
+
+            const rotate = (matrix) => {
+                const rotated = matrix[0].map((_, i) => matrix.map(row => row[i]).reverse());
+                return rotated;
+            };
+
+            const drop = () => {
+                gameState.current.pos.y++;
+                if (collide(gameState.current.grid, gameState.current.piece, gameState.current.pos)) {
+                    gameState.current.pos.y--;
+                    merge(gameState.current.grid, gameState.current.piece, gameState.current.pos);
+                    sweep();
+                    resetPiece();
+                }
+                gameState.current.dropCounter = 0;
+            };
+
+            const sweep = () => {
+                let rowCount = 1;
+                outer: for (let y = ROWS - 1; y > 0; --y) {
+                    for (let x = 0; x < COLS; ++x) {
+                        if (gameState.current.grid[y][x] === 0 || gameState.current.grid[y][x] === 8) continue outer;
+                    }
+                    const row = gameState.current.grid.splice(y, 1)[0].fill(0);
+                    gameState.current.grid.unshift(row);
+                    ++y;
+                    setScore(s => s + rowCount * 10);
+                    rowCount *= 2;
+                }
+            };
+
+            const draw = () => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // 그리드 그리기
+                gameState.current.grid.forEach((row, y) => {
+                    row.forEach((value, x) => {
+                        if (value !== 0) {
+                            ctx.fillStyle = COLORS[value];
+                            ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE - 1, BLOCK_SIZE - 1);
+                        }
+                    });
+                });
+
+                // 현재 조각 그리기
+                if (gameState.current.piece) {
+                    gameState.current.piece.forEach((row, y) => {
+                        row.forEach((value, x) => {
+                            if (value !== 0) {
+                                ctx.fillStyle = COLORS[value];
+                                ctx.fillRect((x + gameState.current.pos.x) * BLOCK_SIZE, (y + gameState.current.pos.y) * BLOCK_SIZE, BLOCK_SIZE - 1, BLOCK_SIZE - 1);
+                            }
+                        });
+                    });
+                }
+            };
+
+            // 키보드 조작
+            useEffect(() => {
+                const handleKeyDown = (e) => {
+                    if (gameOver) return;
+                    if (e.keyCode === 37) { // Left
+                        gameState.current.pos.x--;
+                        if (collide(gameState.current.grid, gameState.current.piece, gameState.current.pos)) gameState.current.pos.x++;
+                    } else if (e.keyCode === 39) { // Right
+                        gameState.current.pos.x++;
+                        if (collide(gameState.current.grid, gameState.current.piece, gameState.current.pos)) gameState.current.pos.x--;
+                    } else if (e.keyCode === 40) { // Down
+                        drop();
+                    } else if (e.keyCode === 38) { // Up (Rotate)
+                        const prev = gameState.current.piece;
+                        gameState.current.piece = rotate(gameState.current.piece);
+                        if (collide(gameState.current.grid, gameState.current.piece, gameState.current.pos)) gameState.current.piece = prev;
+                    } else if (e.keyCode === 32) { // Space (Hard Drop)
+                        while(!collide(gameState.current.grid, gameState.current.piece, gameState.current.pos)) {
+                            gameState.current.pos.y++;
+                        }
+                        gameState.current.pos.y--;
+                        drop();
+                    }
+                };
+                window.addEventListener('keydown', handleKeyDown);
+                return () => window.removeEventListener('keydown', handleKeyDown);
+            }, [gameOver]);
+
+            return (
+                <div className="flex flex-col items-center gap-6">
+                    <div className="flex gap-10 items-start">
+                        <canvas ref={canvasRef} width={COLS * BLOCK_SIZE} height={ROWS * BLOCK_SIZE} className="game-canvas" />
+                        <div className="flex flex-col gap-4">
+                            <div className="bg-zinc-900 p-6 rounded-2xl border border-zinc-800 w-40">
+                                <div className="text-[10px] text-zinc-500 font-bold uppercase mb-1">Score</div>
+                                <div className="text-3xl font-black text-orange-500 font-mono">{score}</div>
+                            </div>
+                            <div className="bg-zinc-900 p-6 rounded-2xl border border-zinc-800 w-40">
+                                <div className="text-[10px] text-zinc-500 font-bold uppercase mb-2">Controls</div>
+                                <div className="text-[9px] text-zinc-400 space-y-1 font-bold">
+                                    <p>↑ : ROTATE</p>
+                                    <p>← → : MOVE</p>
+                                    <p>↓ : DROP</p>
+                                    <p>SPACE : HARD DROP</p>
+                                </div>
+                            </div>
+                            <button onClick={onBack} className="mt-4 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-xs font-bold">EXIT GAME</button>
+                        </div>
+                    </div>
+                    {gameOver && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-[100]">
+                            <h2 className="text-6xl font-black italic text-white mb-4 tracking-tighter">GAME OVER</h2>
+                            <p className="text-orange-500 font-bold mb-8 text-xl">Final Score: {score}</p>
+                            <button onClick={() => window.location.reload()} className="px-10 py-4 bg-white text-black font-black rounded-full hover:scale-110 transition-transform">RETRY</button>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // --- 메인 앱 컴포넌트 ---
         function App() {
             const [selectedStage, setSelectedStage] = useState(null);
             const [filter, setFilter] = useState('ALL');
-            const [searchQuery, setSearchQuery] = useState('');
-
-            const filteredStages = useMemo(() => {
-                return ALL_STAGES.filter(stage => {
-                    const matchesFilter = filter === 'ALL' || stage.cat === filter;
-                    const matchesSearch = stage.name.toLowerCase().includes(searchQuery.toLowerCase());
-                    return matchesFilter && matchesSearch;
-                });
-            }, [filter, searchQuery]);
 
             return (
                 <div className="min-h-screen flex flex-col bg-[#09090b] relative">
@@ -145,100 +314,42 @@
                             <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl flex items-center justify-center font-black text-white italic shadow-lg shadow-orange-900/20">A</div>
                             <span className="font-black text-2xl tracking-tighter">ARCADE-X</span>
                         </div>
-                        {selectedStage && (
-                            <button 
-                                onClick={() => setSelectedStage(null)}
-                                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg text-xs font-bold transition-all text-orange-500"
-                            >
-                                BACK TO MENU
-                            </button>
-                        )}
                     </nav>
 
                     <main className="flex-grow flex flex-col items-center p-4 overflow-hidden">
                         {!selectedStage ? (
                             <div className="w-full max-w-6xl h-full flex flex-col animate-in fade-in duration-500">
-                                <div className="text-center mb-6">
-                                    <h2 className="text-3xl font-black italic tracking-tighter text-white mb-2 uppercase">Select your Challenge</h2>
-                                    <p className="text-zinc-500 text-sm">100개 이상의 다양한 스테이지 패턴이 준비되어 있습니다.</p>
+                                <div className="text-center mb-8">
+                                    <h2 className="text-4xl font-black italic tracking-tighter text-white mb-2 uppercase">Select Stage</h2>
+                                    <p className="text-zinc-500 text-sm">100개 이상의 다양한 장애물 패턴을 정복하세요.</p>
                                 </div>
 
-                                {/* 필터 및 검색 바 */}
-                                <div className="flex flex-col md:flex-row gap-4 mb-6 items-center justify-between bg-zinc-900/30 p-4 rounded-2xl border border-zinc-800">
-                                    <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 no-scrollbar">
-                                        {CATEGORIES.map(cat => (
-                                            <button
-                                                key={cat}
-                                                onClick={() => setFilter(cat)}
-                                                className={`px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest transition-all ${filter === cat ? 'bg-orange-600 text-white' : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'}`}
-                                            >
-                                                {cat}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    <input 
-                                        type="text" 
-                                        placeholder="Search Stage..." 
-                                        value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
-                                        className="bg-black border border-zinc-800 rounded-lg px-4 py-1.5 text-xs w-full md:w-64 focus:border-orange-500 outline-none transition-all"
-                                    />
+                                <div className="flex gap-2 mb-6 justify-center">
+                                    {["ALL", "SHAPES", "NORMAL", "HARD"].map(cat => (
+                                        <button key={cat} onClick={() => setFilter(cat)} className={`px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest transition-all ${filter === cat ? 'bg-orange-600 text-white' : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'}`}>{cat}</button>
+                                    ))}
                                 </div>
                                 
-                                {/* 스테이지 리스트 그리드 */}
                                 <div className="flex-grow overflow-y-auto custom-scroll pr-2 pb-10">
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-                                        {filteredStages.map((stage) => (
-                                            <div 
-                                                key={stage.id}
-                                                onClick={() => setSelectedStage(stage.id)}
-                                                className="stage-card cursor-pointer bg-zinc-900/40 border border-zinc-800/50 p-4 rounded-xl flex flex-col items-center text-center group"
-                                            >
-                                                <div className="text-2xl mb-2 group-hover:animate-bounce">{stage.icon}</div>
-                                                <h3 className="font-bold text-xs text-zinc-200 mb-1 truncate w-full">{stage.name}</h3>
-                                                <span className="text-[9px] text-zinc-600 font-bold uppercase tracking-tighter">{stage.cat}</span>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+                                        {ALL_STAGES.filter(s => filter === 'ALL' || s.cat === filter).map((stage) => (
+                                            <div key={stage.id} onClick={() => setSelectedStage(stage.id)} className="stage-card cursor-pointer bg-zinc-900/40 border border-zinc-800/50 p-4 rounded-xl flex flex-col items-center text-center group">
+                                                <div className="text-2xl mb-2 group-hover:scale-125 transition-transform">{stage.icon}</div>
+                                                <h3 className="font-bold text-[10px] text-zinc-200 truncate w-full">{stage.name}</h3>
                                             </div>
                                         ))}
                                     </div>
-                                    {filteredStages.length === 0 && (
-                                        <div className="text-center py-20 text-zinc-600 font-bold">No stages found.</div>
-                                    )}
                                 </div>
                             </div>
                         ) : (
-                            <div className="w-full flex flex-col items-center animate-in slide-in-from-bottom duration-500">
-                                <div className="mb-4 flex items-center gap-3 bg-zinc-900/80 px-4 py-2 rounded-full border border-zinc-800">
-                                    <span className="text-orange-500 font-bold text-[10px] uppercase tracking-widest">Stage Active:</span>
-                                    <span className="font-black text-white text-xs uppercase tracking-tighter">
-                                        {ALL_STAGES.find(s => s.id === selectedStage)?.name}
-                                    </span>
-                                </div>
-                                
-                                <div className="tetris-wrapper relative group">
-                                    <iframe 
-                                        src={`https://jinuk97.github.io/tetris/?stage=${selectedStage}`} 
-                                        className="tetris-iframe"
-                                        title="Tetris Game"
-                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                        allowFullScreen
-                                    ></iframe>
-                                    
-                                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-6 py-2 rounded-full border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                                        <p className="text-zinc-300 text-[9px] font-bold uppercase tracking-widest flex gap-4">
-                                            <span>← → : Move</span>
-                                            <span>↑ : Rotate</span>
-                                            <span>Space : Hard Drop</span>
-                                        </p>
-                                    </div>
-                                </div>
+                            <div className="w-full flex flex-col items-center animate-in slide-in-from-bottom duration-500 mt-10">
+                                <TetrisGame stageId={selectedStage} onBack={() => setSelectedStage(null)} />
                             </div>
                         )}
                     </main>
 
                     <footer className="p-3 text-center border-t border-zinc-900 bg-zinc-950/30">
-                        <p className="text-[9px] text-zinc-700 font-bold tracking-widest uppercase">
-                            Total Stages: {ALL_STAGES.length} • ARCADE-X Pro
-                        </p>
+                        <p className="text-[9px] text-zinc-700 font-bold tracking-widest uppercase tracking-widest">ARCADE-X INTERNAL ENGINE v2.0</p>
                     </footer>
                 </div>
             );
